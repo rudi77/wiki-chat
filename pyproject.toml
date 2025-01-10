@@ -1,0 +1,20 @@
+[project]
+name = "wiki-chat"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "chromadb>=0.5.23",
+    "langchain-community>=0.3.12",
+    "langchain>=0.3.12",
+    "openai>=1.58.1",
+    "python-dotenv>=1.0.1",
+    "streamlit>=1.41.1",
+    "langchain-openai>=0.2.12",
+    "unstructured>=0.16.11",
+    "markdown>=3.7",
+    "python-magic-bin>=0.4.14",
+    "llama-index>=0.12.6",
+    "tiktoken>=0.8.0",
+]
