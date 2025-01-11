@@ -38,19 +38,9 @@ class LLMHandler:
             combine_docs_chain=combine_documents_chain
         )
 
-    def summarize_file_content(self, file_text, file_name):
-        user_prompt = f"Provide a concise summary of the file '{file_name}':\n{file_text}"
+    def send_query(self, system_prompt: str, user_prompt: str):
         response = self.llm([
-            SystemMessage(content="You are a helpful assistant for summarizing files."),
+            SystemMessage(content=system_prompt),
             HumanMessage(content=user_prompt)
-        ])
-        return response.content.strip()
-
-    def generate_master_toc(self, summaries):
-        combined_summaries = "\n".join([f"FILE: {os.path.basename(fp)}\nSUMMARY: {summary}" for fp, summary in summaries.items()])
-        user_content = f"You are an expert content organizer. Based on the following summaries, create a Table of Contents in Markdown:\n\n{combined_summaries}"
-        response = self.llm([
-            SystemMessage(content="You are an expert content organizer."),
-            HumanMessage(content=user_content)
         ])
         return response.content.strip()

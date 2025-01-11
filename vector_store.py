@@ -4,6 +4,7 @@ from langchain_community.document_loaders import UnstructuredMarkdownLoader, Tex
 from langchain.text_splitter import RecursiveCharacterTextSplitter, MarkdownTextSplitter
 from langchain_community.embeddings import OpenAIEmbeddings
 from langchain_community.vectorstores import Chroma
+from langchain.schema import Document
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -20,6 +21,22 @@ class VectorStoreManager:
             return None
 
     def process_documents(self, directory, file_types, splitter_type="Recursive", chunk_size=1000, chunk_overlap=200):
+        """
+        - Loads and splits new documents from a directory and creates or updates the vector store.
+        - Create summary and table of contents for these documents.
+
+        Args:
+        - directory (str): The directory path to scan for files.
+        - file_types (list): The list of file types to load.
+        - splitter_type (str): The type of text splitter to use.
+        - chunk_size (int): The size of the text chunks.
+        - chunk_overlap (int): The overlap between text chunks.
+
+        Returns:
+        - documents (list): The list of processed documents
+        """
+
+
         documents = self.load_and_split_documents(directory, file_types, splitter_type, chunk_size, chunk_overlap)
         if documents:
             self.create_vectorstore(documents)
@@ -64,4 +81,23 @@ class VectorStoreManager:
             return
         embeddings = OpenAIEmbeddings(openai_api_key=os.getenv("OPENAI_API_KEY"))
         self.vectorstore = Chroma.from_documents(documents, embeddings, persist_directory=self.persist_dir)
+        self.vectorstore.persist()
+
+    def add_documents(self, pages: list):
+        """
+        Add documents to the vector store.
+
+        Args:
+        - pages (list): The list of pages to add to the vector store. A page is a tuple of (content, metadata).        
+        """
+
+        if not self.vectorstore:
+            return
+
+        documents = []
+        for content, metradata in pages:
+            doc = Document(page_content=content, metadata=metradata)
+            documents.append(doc)
+            
+        self.vectorstore.add_documents(documents=documents)
         self.vectorstore.persist()
