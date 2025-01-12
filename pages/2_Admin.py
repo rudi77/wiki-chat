@@ -42,7 +42,10 @@ def main():
         if not directory:
             st.warning("⚠️ Please enter a directory path.")
         else:
-            doc_processor = DocumentProcessor(vectorstore_manager=st.session_state.vsm, llm=st.session_state.llm_handler)
-            doc_processor.process_documents(directory, file_types_selected)
+            # start a spinner
+            with st.spinner("Processing documents..."):
+                doc_processor = DocumentProcessor(vectorstore_manager=st.session_state.vsm, llm=st.session_state.llm_handler)
+                doc_processor.process_documents(directory, file_types_selected)
+                st.write("✅ Documents processed successfully.")
 
 main()

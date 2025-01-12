@@ -47,6 +47,7 @@ class DocumentProcessor:
                     "content" : file_text,
                     "file_name" : os.path.basename(file)
                 }
+            
 
         # Add the documents to the vector store
         summary_list = [
@@ -57,7 +58,7 @@ class DocumentProcessor:
 
         # Add table of contents to the vector store
         table_of_contents = self.generate_master_toc(self.combine_summaries(summaries))
-        self.vectorstore_manager.add_document([table_of_contents, {"description": "Table of Contents", "type": "toc"}])
+        self.vectorstore_manager.add_documents([(table_of_contents, {"description": "Table of Contents", "type": "toc"})])
 
         # Add the content of the files to the vector store
         self.vectorstore_manager.process_documents(directory, file_types)
@@ -78,7 +79,13 @@ class DocumentProcessor:
         }
         """
 
-        combined_summaries = "\n".join([f"FILE: {summary['file_name']}\nSUMMARY: {summary['summary']}" for summary in summaries])
+        combined_summaries = ""
+        for summary in summaries.values():
+            combined_summaries += f"FILE: {summary['file_name']}\nSUMMARY: {summary['summary']}\n"
+            combined_summaries += "\n\n"
+
+        print(combined_summaries)
+
         return combined_summaries
 
     def generate_master_toc(self, combined_summaries):
