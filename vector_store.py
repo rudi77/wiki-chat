@@ -1,7 +1,6 @@
 import os
 import glob
-from langchain_community.document_loaders import UnstructuredMarkdownLoader, TextLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter, MarkdownTextSplitter
+import shutil
 from langchain_community.embeddings import OpenAIEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain.schema import Document
@@ -10,108 +9,86 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class VectorStoreManager:
-    def __init__(self, persist_dir="./chroma_db"):
-        self.persist_dir = persist_dir
-        self.vectorstore = self.load_or_create_vectorstore()
+    def __init__(self, parent_dir="./vectordbs"):
+        self.parent_dir = parent_dir
+        self._ensure_parent_dir()
 
-    def load_or_create_vectorstore(self):
-        if os.path.exists(os.path.join(self.persist_dir)):
-            return Chroma(
-                persist_directory=self.persist_dir,
-                embedding_function=OpenAIEmbeddings(api_key=os.getenv("OPENAI_API_KEY")))
-        else:
-            # create directory if it does not exist
-            os.makedirs(os.path.join(self.persist_dir))
+    def _ensure_parent_dir(self):
+        if not os.path.exists(self.parent_dir):
+            os.makedirs(self.parent_dir)
 
-            # Create a new vector store
-            return Chroma(
-                persist_directory=self.persist_dir,
-                embedding_function=OpenAIEmbeddings(api_key=os.getenv("OPENAI_API_KEY")))
+    def create_vectordb(self, db_name: str) -> bool:
+        db_path = os.path.join(self.parent_dir, db_name)
+        if os.path.exists(db_path):
+            return False  # Vectordb already exists
+        os.makedirs(db_path)
+        # Initialize empty Chroma vectorstore
+        embeddings = OpenAIEmbeddings(api_key=os.getenv("OPENAI_API_KEY"))
+        Chroma(persist_directory=db_path, embedding_function=embeddings)
+        return True
 
-    def process_documents(self, directory, file_types, splitter_type="Recursive", chunk_size=1000, chunk_overlap=200):
-        """
-        - Loads and splits new documents from a directory and creates or updates the vector store.
-        - Create summary and table of contents for these documents.
+    def list_vectordbs(self) -> list:
+        return [name for name in os.listdir(self.parent_dir)
+                if os.path.isdir(os.path.join(self.parent_dir, name))]
 
-        Args:
-        - directory (str): The directory path to scan for files.
-        - file_types (list): The list of file types to load.
-        - splitter_type (str): The type of text splitter to use.
-        - chunk_size (int): The size of the text chunks.
-        - chunk_overlap (int): The overlap between text chunks.
+    def delete_vectordb(self, db_name: str) -> bool:
+        db_path = os.path.join(self.parent_dir, db_name)
+        if not os.path.exists(db_path):
+            return False  # Vectordb does not exist
+        shutil.rmtree(db_path)
+        return True
 
-        Returns:
-        - documents (list): The list of processed documents
-        """
+    def get_vectorstore(self, db_name: str):
+        db_path = os.path.join(self.parent_dir, db_name)
+        if not os.path.exists(db_path):
+            return None
+        embeddings = OpenAIEmbeddings(api_key=os.getenv("OPENAI_API_KEY"))
+        return Chroma(persist_directory=db_path, embedding_function=embeddings)
 
+    def add_documents(self, db_name: str, documents: list) -> bool:
+        vectorstore = self.get_vectorstore(db_name)
+        if vectorstore is None:
+            return False
+        try:
+            vectorstore.add_documents(documents=documents)
+            vectorstore.persist()
+            return True
+        except Exception as e:
+            print(f"Error adding documents to vectordb '{db_name}': {e}")
+            return False
 
-        documents = self.load_and_split_documents(directory, file_types, splitter_type, chunk_size, chunk_overlap)        
-        if documents:    
-            self.create_vectorstore(documents)
-
-            # write documents to a file
-            with open("documents.txt", "w") as f:
-                for doc in documents:
-                    f.write(f"{doc.metadata['source']} - {doc.metadata['chunk']}\n{doc.page_content}\n\n")
-
-            return documents
-        else:
+    def list_documents(self, db_name: str) -> list:
+        vectorstore = self.get_vectorstore(db_name)
+        if vectorstore is None:
+            print(f"Vectordb '{db_name}' does not exist.")
             return []
 
-    def load_and_split_documents(self, directory, file_types, splitter_type, chunk_size, chunk_overlap):
-        all_file_paths = []
-        for file_type in file_types:
-            file_pattern = f"{directory}/**/*.{file_type}"
-            matched = glob.glob(file_pattern, recursive=True)
-            all_file_paths.extend(matched)
+        try:
+            # Use Chroma's retriever to fetch metadata
+            docs_with_metadata = vectorstore._collection.get(include=['metadatas', 'documents'])
+            documents = zip(docs_with_metadata['documents'], docs_with_metadata['metadatas'])
 
-        text_splitter = self.get_text_splitter(splitter_type, chunk_size, chunk_overlap)
-        documents = []
-        for file_path in all_file_paths:
-            loader = self.get_loader(file_path)
-            file_docs = loader.load()
-            split_docs = text_splitter.split_documents(file_docs)
-            for i, doc in enumerate(split_docs):
-                doc.metadata["source"] = file_path
-                doc.metadata["chunk"] = i
-                documents.append(doc)
-        return documents
+            # Return structured data
+            return [
+                {
+                    "content": doc_content,
+                    "metadata": metadata or {}
+                }
+                for doc_content, metadata in documents
+            ]
+        except Exception as e:
+            print(f"Error listing documents in vectordb '{db_name}': {e}")
+            return []
 
-    def get_loader(self, file_path):
-        ext = os.path.splitext(file_path)[1].lower()
-        if ext == ".md":
-            return UnstructuredMarkdownLoader(file_path)
-        else:
-            return TextLoader(file_path)
 
-    def get_text_splitter(self, splitter_type, chunk_size, chunk_overlap):
-        if splitter_type == "Markdown":
-            return MarkdownTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-        else:
-            return RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-
-    def create_vectorstore(self, documents):
-        if not documents:
-            return
-        embeddings = OpenAIEmbeddings(openai_api_key=os.getenv("OPENAI_API_KEY"))
-        self.vectorstore = Chroma.from_documents(documents, embeddings, persist_directory=self.persist_dir)
-        self.vectorstore.persist()
-
-    def add_documents(self, pages: list):
-        """
-        Add documents to the vector store.
-
-        Args:
-        - pages (list): The list of pages to add to the vector store. A page is a tuple of (content, metadata).        
-        """
-
-        if not self.vectorstore:
-            return
-
-        documents = []
-        for content, metradata in pages:
-            doc = Document(page_content=content, metadata=metradata)
-            documents.append(doc)
-            
-        self.vectorstore.add_documents(documents=documents)
-        self.vectorstore.persist()
+    def delete_document(self, db_name: str, document_id: str) -> bool:
+        vectorstore = self.get_vectorstore(db_name)
+        if not vectorstore:
+            return False
+        try:
+            vectorstore._collection.delete(ids=[document_id])
+            vectorstore.persist()
+            return True
+        except Exception as e:
+            print(f"Error deleting document '{document_id}' from vectordb '{db_name}': {e}")
+            return False
