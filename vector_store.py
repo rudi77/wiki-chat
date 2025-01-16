@@ -12,13 +12,21 @@ load_dotenv()
 class VectorStoreManager:
     def __init__(self, persist_dir="./chroma_db"):
         self.persist_dir = persist_dir
-        self.vectorstore = self.load_vectorstore()
+        self.vectorstore = self.load_or_create_vectorstore()
 
-    def load_vectorstore(self):
-        if os.path.exists(os.path.join(self.persist_dir, "79e7306f-9354-405f-9a04-64481cfc9997")):
-            return Chroma(persist_directory=self.persist_dir, embedding_function=OpenAIEmbeddings(api_key=os.getenv("OPENAI_API_KEY")))
+    def load_or_create_vectorstore(self):
+        if os.path.exists(os.path.join(self.persist_dir)):
+            return Chroma(
+                persist_directory=self.persist_dir,
+                embedding_function=OpenAIEmbeddings(api_key=os.getenv("OPENAI_API_KEY")))
         else:
-            return None
+            # create directory if it does not exist
+            os.makedirs(os.path.join(self.persist_dir))
+
+            # Create a new vector store
+            return Chroma(
+                persist_directory=self.persist_dir,
+                embedding_function=OpenAIEmbeddings(api_key=os.getenv("OPENAI_API_KEY")))
 
     def process_documents(self, directory, file_types, splitter_type="Recursive", chunk_size=1000, chunk_overlap=200):
         """
@@ -37,9 +45,15 @@ class VectorStoreManager:
         """
 
 
-        documents = self.load_and_split_documents(directory, file_types, splitter_type, chunk_size, chunk_overlap)
-        if documents:
+        documents = self.load_and_split_documents(directory, file_types, splitter_type, chunk_size, chunk_overlap)        
+        if documents:    
             self.create_vectorstore(documents)
+
+            # write documents to a file
+            with open("documents.txt", "w") as f:
+                for doc in documents:
+                    f.write(f"{doc.metadata['source']} - {doc.metadata['chunk']}\n{doc.page_content}\n\n")
+
             return documents
         else:
             return []

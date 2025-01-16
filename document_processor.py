@@ -1,5 +1,6 @@
 import os
 import glob
+import json
 from vector_store import VectorStoreManager
 from llm_handler import LLMHandler
 
@@ -37,38 +38,52 @@ class DocumentProcessor:
             # do not include directories starting with "."
             files.extend(glob.glob(f"{directory}/**/*.{file_type}", recursive=True))
     
-        summaries = {}
-        for file in files:
-            with open(file, "r") as f:
-                file_text = f.read()
-                summary = self.summarize_file_content(file_text, file)
-                summaries[file] = {
-                    "summary" : summary,
-                    "content" : file_text,
-                    "file_name" : os.path.basename(file)
-                }
-            
 
+        # Add summaries of the files to the vector store
+        summaries = self.add_file_summaries(files, read_from_file=True)
+
+        # Add table of contents to the vector store
+        self.add_master_toc(self._combine_summaries(summaries))
+        
+        # Add the content of the files to the vector store
+        self.vectorstore_manager.process_documents(directory, file_types)
+
+    def add_file_summaries(self, files, read_from_file=False):
+        summaries = {}
+
+        if read_from_file:
+            with open("summaries.json", "r") as f:
+                summaries = json.load(f)
+        else:
+            for file in files:
+                with open(file, "r") as f:
+                    file_text = f.read()
+                    user_prompt = f"Provide a concise summary of the file '{file}':\n{file_text}"
+                    system_prompt = "You are a helpful assistant for summarizing files."
+                    summary = self.llm.send_query(system_prompt, user_prompt)
+                    summaries[file] = {
+                        "summary" : summary,
+                        "content" : file_text,
+                        "file_name" : os.path.basename(file)
+                    }
+                        
+            # create a json object from the summaries dictionary
+            summaries_json = json.dumps(summaries, indent=4)
+
+            # write the summaries to a summaries.json file
+            with open("summaries.json", "w") as f:
+                f.write(summaries_json)
+        
         # Add the documents to the vector store
         summary_list = [
             (summary["summary"], {"source": summary['file_name'], "description": "Summary of file", "type": "summary"})
             for summary in summaries.values()]
-        
+
         self.vectorstore_manager.add_documents(summary_list)
+        
+        return summaries
 
-        # Add table of contents to the vector store
-        table_of_contents = self.generate_master_toc(self.combine_summaries(summaries))
-        self.vectorstore_manager.add_documents([(table_of_contents, {"description": "Table of Contents", "type": "toc"})])
-
-        # Add the content of the files to the vector store
-        self.vectorstore_manager.process_documents(directory, file_types)
-
-    def summarize_file_content(self, file_text, file_name):
-        user_prompt = f"Provide a concise summary of the file '{file_name}':\n{file_text}"
-        system_prompt = "You are a helpful assistant for summarizing files."
-        return self.llm.send_query(system_prompt, user_prompt)
-
-    def combine_summaries(self, summaries: dict):
+    def _combine_summaries(self, summaries: dict):
         """
         Combines the summaries of the files into a single table of contents.
         A single summary has the following format:
@@ -88,8 +103,25 @@ class DocumentProcessor:
 
         return combined_summaries
 
-    def generate_master_toc(self, combined_summaries):
-        user_content = f"You are an expert content organizer. Based on the following summaries, create a Table of Contents in Markdown:\n\n{combined_summaries}"
-        system_prompt = "You are an expert content organizer."
-        return self.llm.send_query(system_prompt, user_content)
+    def add_master_toc(self, combined_summaries, read_from_file=False):
+        """
+        Creates a table of contents based on the summaries of the files.
+        
+        """
+        if read_from_file:
+            with open("toc.md", "r") as f:
+                toc = f.read()
+        else:
+            user_content = f"You are an expert content organizer. Based on the following summaries, create a Table of Contents in Markdown:\n\n{combined_summaries}"
+            system_prompt = "You are an expert content organizer."
+            toc = self.llm.send_query(system_prompt, user_content)
+            # write the table of contents to a toc.md file
+            with open("toc.md", "w") as f:
+                f.write(toc)
+
+        # Add the table of contents to the vector store
+        self.vectorstore_manager.add_documents([(toc, {"description": "Table of Contents", "type": "toc"})])            
+
+
+
         

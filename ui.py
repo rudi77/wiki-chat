@@ -25,7 +25,7 @@ def main():
             if key in st.session_state:
                 del st.session_state[key]
         vsm = VectorStoreManager(persist_dir=persist_directory)
-        st.session_state.vectorstore = vsm.load_vectorstore()
+        st.session_state.vectorstore = vsm.load_or_create_vectorstore()
         st.rerun()
 
     vsm = VectorStoreManager(persist_dir=persist_directory)

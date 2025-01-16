@@ -33,6 +33,7 @@ class LLMHandler:
             prompt=prompt
         )
         retriever = vectorstore.as_retriever()
+        
         return create_retrieval_chain(
             retriever=retriever,
             combine_docs_chain=combine_documents_chain
@@ -43,4 +44,7 @@ class LLMHandler:
             SystemMessage(content=system_prompt),
             HumanMessage(content=user_prompt)
         ])
+
+        print(response)
+
         return response.content.strip()

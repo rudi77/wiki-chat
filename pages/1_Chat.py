@@ -23,15 +23,15 @@ def main():
     # Initialize Vector Store
     if 'vectorstore' not in st.session_state:
         vsm = VectorStoreManager(persist_dir=persist_directory)
-        st.session_state.vectorstore = vsm.load_vectorstore()
+        st.session_state.vectorstore = vsm.load_or_create_vectorstore()
 
     # Handle Clear Chat and Reload
     if clear_button:
-        for key in ["messages", "documents_processed", "file_summaries", "table_of_contents"]:
+        for key in ["messages", "documents_processed", "file_summaries", "table_of_contents", 'retrieval_chain', 'llm_handler', 'context', 'vectorstore']:
             if key in st.session_state:
                 del st.session_state[key]
-        vsm = VectorStoreManager(persist_dir=persist_directory)
-        st.session_state.vectorstore = vsm.load_vectorstore()
+        # vsm = VectorStoreManager(persist_dir=persist_directory)
+        # st.session_state.vectorstore = vsm.load_or_create_vectorstore()
         st.rerun()
 
     # Initialize LLM Handler
@@ -68,20 +68,36 @@ def main():
             st.markdown(user_input)
         
         # Process Input and Generate Response
-        if st.session_state.vectorstore:
-            retriever = st.session_state.vectorstore.as_retriever(search_kwargs={"k": 20})
-            context_docs = retriever.get_relevant_documents(user_input)
-            formatted_context = "\n\n".join([doc.page_content for doc in context_docs])
-            st.session_state.context = formatted_context
+        if 'vectorstore' not in st.session_state or 'retrieval_chain' not in st.session_state:
+            st.error("Vector Store or Retrieval Chain not initialized. Please reload the page.")
+            return
+
+        retriever = st.session_state.vectorstore.as_retriever(search_kwargs={"k": 50})
+        context_docs = retriever.get_relevant_documents(user_input)
+
+        # print context_docs
+        for doc in context_docs:
+            print(doc.metadata)
+            print(doc.page_content)
+            print("=====================================")
+            print("\n\n")
+
+        formatted_context = "\n\n".join([doc.page_content for doc in context_docs])
+        st.session_state.context = formatted_context
         
-        if st.session_state.retrieval_chain:
-            with st.spinner("🧠 Generating answer from LLM..."):
-                response = st.session_state.retrieval_chain.invoke({"input": user_input})
-                assistant_response = response['answer']
-                # Append assistant message
-                st.session_state.messages.append({"role": "assistant", "content": assistant_response})
-                with st.chat_message("assistant"):
-                    st.markdown(assistant_response)
+        #if st.session_state.retrieval_chain:
+        with st.spinner("🧠 Generating answer from LLM..."):
+
+            if 'retrieval_chain' not in st.session_state:
+                st.error("Retrieval Chain not initialized. Please reload the page.")
+                return
+
+            response = st.session_state.retrieval_chain.invoke({"input": user_input})
+            assistant_response = response['answer']
+            # Append assistant message
+            st.session_state.messages.append({"role": "assistant", "content": assistant_response})
+            with st.chat_message("assistant"):
+                st.markdown(assistant_response)
 
 
 main()
