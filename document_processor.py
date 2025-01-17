@@ -2,6 +2,7 @@ import os
 import glob
 import json
 import uuid  # Moved import to the top for better practice
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from vector_store import VectorStoreManager
 from llm_handler import LLMHandler
 from langchain.schema import Document
@@ -19,7 +20,7 @@ class DocumentProcessor:
         self.vectorstore_manager = vectorstore_manager
         self.llm = llm
 
-    def process_documents(self, db_name: str, directory: str, file_types: list, splitter_type="Recursive", chunk_size=2000, chunk_overlap=200):
+    def process_documents(self, db_name: str, directory: str, file_types: list, splitter_type="Recursive", chunk_size=2000, chunk_overlap=200, progress_callback=None):
         """
         Reads documents recursively from a directory and processes them for storage in the vector store.
         - Create a summary of the content of each document.
@@ -52,7 +53,7 @@ class DocumentProcessor:
             return
 
         # Add summaries of the files to the vector store
-        summaries = self.add_file_summaries(files, read_from_file=False, db_name=db_name)
+        summaries = self.add_file_summaries(files, read_from_file=False, db_name=db_name, progress_callback=progress_callback)
 
         # Add table of contents to the vector store
         self.add_master_toc(db_name, self._combine_summaries(summaries))
@@ -87,36 +88,64 @@ class DocumentProcessor:
         else:
             print("No documents to add to the vector store.")
 
-    def add_file_summaries(self, files, read_from_file=False, db_name: str = ""):
+    def add_file_summaries(self, files, read_from_file=False, db_name: str = "", progress_callback=None):
+        """
+        Summarizes the content of the files and adds the summaries to the vector store.
+
+        Args:
+        - files (list): A list of file paths to summarize.
+        - read_from_file (bool): Whether to read existing summaries from a file.
+        - db_name (str): The name of the vectordb to add the summaries to.
+
+        Returns:
+        - summaries (dict): A dictionary of file summaries.
+        """
         summaries = {}
 
+        # Load existing summaries from a file if requested
         if read_from_file and os.path.exists("summaries.json"):
             with open("summaries.json", "r", encoding='utf-8') as f:
                 summaries = json.load(f)
         else:
-            for file in files:
+            def process_file(file):
+                """Helper function to process a single file and generate a summary."""
                 try:
                     with open(file, "r", encoding='utf-8') as f:
                         file_text = f.read()
                         user_prompt = f"Provide a concise summary of the file '{file}':\n{file_text}"
                         system_prompt = "You are a helpful assistant for summarizing files."
                         summary = self.llm.send_query(system_prompt, user_prompt)
-                        summaries[file] = {
-                            "summary" : summary,
-                            "content" : file_text,
-                            "file_name" : os.path.basename(file)
+                        return file, {
+                            "summary": summary,
+                            "content": file_text,
+                            "file_name": os.path.basename(file)
                         }
                 except Exception as e:
                     print(f"Error reading file {file}: {e}")
-                        
-            # Create a JSON object from the summaries dictionary
-            summaries_json = json.dumps(summaries, indent=4)
+                    return file, None
 
-            # Write the summaries to a summaries.json file
+            total_files = len(files)
+
+
+            # Use ThreadPoolExecutor to process files in parallel
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                future_to_file = {executor.submit(process_file, file): file for file in files}
+
+                for idx, future in enumerate(as_completed(future_to_file), start=1):
+                    file, result = future.result()
+                    if result:
+                        summaries[file] = result
+
+                     # Invoke the progress callback with the current state
+                    if progress_callback:
+                        progress_callback(idx, total_files, file)
+
+            # Save summaries to a JSON file
+            summaries_json = json.dumps(summaries, indent=4)
             filename = db_name + "_summaries.json" if db_name else "summaries.json"
-            with open( filename, "w", encoding='utf-8') as f:
+            with open(filename, "w", encoding='utf-8') as f:
                 f.write(summaries_json)
-        
+
         # Add the summaries to the vector store
         summary_list = [
             self.create_document(page_content=summary["summary"], metadata={
@@ -128,11 +157,57 @@ class DocumentProcessor:
             for summary in summaries.values()
         ]
 
-
         if db_name:  # Ensure db_name is provided
             self.vectorstore_manager.add_documents(db_name=db_name, documents=summary_list)
-        
+
         return summaries
+
+    # def add_file_summaries(self, files, read_from_file=False, db_name: str = ""):
+    #     summaries = {}
+
+    #     if read_from_file and os.path.exists("summaries.json"):
+    #         with open("summaries.json", "r", encoding='utf-8') as f:
+    #             summaries = json.load(f)
+    #     else:
+    #         for file in files:
+    #             try:
+    #                 with open(file, "r", encoding='utf-8') as f:
+    #                     file_text = f.read()
+    #                     user_prompt = f"Provide a concise summary of the file '{file}':\n{file_text}"
+    #                     system_prompt = "You are a helpful assistant for summarizing files."
+    #                     summary = self.llm.send_query(system_prompt, user_prompt)
+    #                     summaries[file] = {
+    #                         "summary" : summary,
+    #                         "content" : file_text,
+    #                         "file_name" : os.path.basename(file)
+    #                     }
+    #             except Exception as e:
+    #                 print(f"Error reading file {file}: {e}")
+                        
+    #         # Create a JSON object from the summaries dictionary
+    #         summaries_json = json.dumps(summaries, indent=4)
+
+    #         # Write the summaries to a summaries.json file
+    #         filename = db_name + "_summaries.json" if db_name else "summaries.json"
+    #         with open( filename, "w", encoding='utf-8') as f:
+    #             f.write(summaries_json)
+        
+    #     # Add the summaries to the vector store
+    #     summary_list = [
+    #         self.create_document(page_content=summary["summary"], metadata={
+    #             "source": summary['file_name'],
+    #             "description": "Summary of file",
+    #             "type": "summary",
+    #             "id": self.generate_doc_id()
+    #         })
+    #         for summary in summaries.values()
+    #     ]
+
+
+    #     if db_name:  # Ensure db_name is provided
+    #         self.vectorstore_manager.add_documents(db_name=db_name, documents=summary_list)
+        
+    #     return summaries
 
     def _combine_summaries(self, summaries: dict):
         """

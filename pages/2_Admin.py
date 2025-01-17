@@ -91,7 +91,7 @@ def main():
             with manage_tabs[0]:
                 st.subheader("Add Documents to Vectordb")
                 directory = st.text_input("Directory path to scan for files:", value="", key="manage_add_dir")
-                file_types_selected = st.multiselect("Select file types to load:", ["md", "py", "cs", "txt"], default=["md"])
+                file_types_selected = st.multiselect("Select file types to load:", ["md", "py", "cs", "txt", "tf", "tfvars", "yaml", "yml", "json"], default=["md"])
                 splitter_type = st.selectbox("Splitter Type", ["Recursive", "Markdown"], index=0)
                 chunk_size = st.number_input("Chunk size:", min_value=100, value=1000, step=100)
                 chunk_overlap = st.number_input("Chunk overlap:", min_value=0, value=200, step=50)
@@ -110,7 +110,8 @@ def main():
                                     file_types=file_types_selected,
                                     splitter_type=splitter_type,
                                     chunk_size=chunk_size,
-                                    chunk_overlap=chunk_overlap
+                                    chunk_overlap=chunk_overlap,
+                                    progress_callback=lambda current, total, file: st.text(f"Processing {current}/{total}: {file}")
                                 )
                                 st.success("✅ Documents added successfully.")
                             except Exception as e:
@@ -144,29 +145,29 @@ def main():
                     st.info("No documents found in this vectordb.")
 
 
-            with manage_tabs[2]:
-                st.subheader("Delete Documents from Vectordb")
-                documents = vectorstore_manager.list_documents(selected_db)
-                if documents:
-                    doc_options = [f"{doc['id']} - {doc['source']}" for doc in documents]
-                    selected_docs = st.multiselect(
-                        "Select documents to delete:",
-                        options=doc_options,
-                        format_func=lambda x: x
-                    )
-                    if st.button("🗑️ Delete Selected Documents"):
-                        if not selected_docs:
-                            st.warning("⚠️ Please select at least one document to delete.")
-                        else:
-                            deleted = 0
-                            for doc in selected_docs:
-                                doc_id = doc.split(" - ")[0]
-                                success = vectorstore_manager.delete_document(selected_db, doc_id)
-                                if success:
-                                    deleted += 1
-                            st.success(f"✅ Deleted {deleted} document(s) successfully.")
-                else:
-                    st.info("No documents available to delete.")
+            # with manage_tabs[2]:
+            #     st.subheader("Delete Documents from Vectordb")
+            #     documents = vectorstore_manager.list_documents(selected_db)
+            #     if documents:
+            #         doc_options = [f"{doc['id']} - {doc['source']}" for doc in documents]
+            #         selected_docs = st.multiselect(
+            #             "Select documents to delete:",
+            #             options=doc_options,
+            #             format_func=lambda x: x
+            #         )
+            #         if st.button("🗑️ Delete Selected Documents"):
+            #             if not selected_docs:
+            #                 st.warning("⚠️ Please select at least one document to delete.")
+            #             else:
+            #                 deleted = 0
+            #                 for doc in selected_docs:
+            #                     doc_id = doc.split(" - ")[0]
+            #                     success = vectorstore_manager.delete_document(selected_db, doc_id)
+            #                     if success:
+            #                         deleted += 1
+            #                 st.success(f"✅ Deleted {deleted} document(s) successfully.")
+            #     else:
+            #         st.info("No documents available to delete.")
 
             with manage_tabs[3]:
                 st.subheader("Delete Vectordb")
