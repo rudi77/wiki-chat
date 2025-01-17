@@ -162,53 +162,6 @@ class DocumentProcessor:
 
         return summaries
 
-    # def add_file_summaries(self, files, read_from_file=False, db_name: str = ""):
-    #     summaries = {}
-
-    #     if read_from_file and os.path.exists("summaries.json"):
-    #         with open("summaries.json", "r", encoding='utf-8') as f:
-    #             summaries = json.load(f)
-    #     else:
-    #         for file in files:
-    #             try:
-    #                 with open(file, "r", encoding='utf-8') as f:
-    #                     file_text = f.read()
-    #                     user_prompt = f"Provide a concise summary of the file '{file}':\n{file_text}"
-    #                     system_prompt = "You are a helpful assistant for summarizing files."
-    #                     summary = self.llm.send_query(system_prompt, user_prompt)
-    #                     summaries[file] = {
-    #                         "summary" : summary,
-    #                         "content" : file_text,
-    #                         "file_name" : os.path.basename(file)
-    #                     }
-    #             except Exception as e:
-    #                 print(f"Error reading file {file}: {e}")
-                        
-    #         # Create a JSON object from the summaries dictionary
-    #         summaries_json = json.dumps(summaries, indent=4)
-
-    #         # Write the summaries to a summaries.json file
-    #         filename = db_name + "_summaries.json" if db_name else "summaries.json"
-    #         with open( filename, "w", encoding='utf-8') as f:
-    #             f.write(summaries_json)
-        
-    #     # Add the summaries to the vector store
-    #     summary_list = [
-    #         self.create_document(page_content=summary["summary"], metadata={
-    #             "source": summary['file_name'],
-    #             "description": "Summary of file",
-    #             "type": "summary",
-    #             "id": self.generate_doc_id()
-    #         })
-    #         for summary in summaries.values()
-    #     ]
-
-
-    #     if db_name:  # Ensure db_name is provided
-    #         self.vectorstore_manager.add_documents(db_name=db_name, documents=summary_list)
-        
-    #     return summaries
-
     def _combine_summaries(self, summaries: dict):
         """
         Combines the summaries of the files into a single table of contents.
