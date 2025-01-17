@@ -19,7 +19,7 @@ class DocumentProcessor:
         self.vectorstore_manager = vectorstore_manager
         self.llm = llm
 
-    def process_documents(self, db_name: str, directory: str, file_types: list, splitter_type="Recursive", chunk_size=1000, chunk_overlap=200):
+    def process_documents(self, db_name: str, directory: str, file_types: list, splitter_type="Recursive", chunk_size=2000, chunk_overlap=200):
         """
         Reads documents recursively from a directory and processes them for storage in the vector store.
         - Create a summary of the content of each document.
@@ -52,7 +52,7 @@ class DocumentProcessor:
             return
 
         # Add summaries of the files to the vector store
-        summaries = self.add_file_summaries(files, read_from_file=True, db_name=db_name)
+        summaries = self.add_file_summaries(files, read_from_file=False, db_name=db_name)
 
         # Add table of contents to the vector store
         self.add_master_toc(db_name, self._combine_summaries(summaries))
@@ -80,7 +80,8 @@ class DocumentProcessor:
                 print("Failed to add documents to the vector store.")
             
             # Optionally, write documents to a file for record-keeping
-            with open("documents.txt", "w", encoding='utf-8') as f:
+            filename = db_name + "_documents.txt" if db_name else "documents.txt"
+            with open(db_name, "w", encoding='utf-8') as f:
                 for doc in documents:
                     f.write(f"{doc.metadata.get('source', 'Unknown Source')} - Chunk {doc.metadata.get('chunk', 'N/A')}\n{doc.page_content}\n\n")
         else:
@@ -112,7 +113,8 @@ class DocumentProcessor:
             summaries_json = json.dumps(summaries, indent=4)
 
             # Write the summaries to a summaries.json file
-            with open("summaries.json", "w", encoding='utf-8') as f:
+            filename = db_name + "_summaries.json" if db_name else "summaries.json"
+            with open( filename, "w", encoding='utf-8') as f:
                 f.write(summaries_json)
         
         # Add the summaries to the vector store
@@ -163,7 +165,9 @@ class DocumentProcessor:
             system_prompt = "You are an expert content organizer."
             toc = self.llm.send_query(system_prompt, user_content)
             # Write the table of contents to a toc.md file
-            with open("toc.md", "w", encoding='utf-8') as f:
+
+            filename = db_name + "_toc.md" if db_name else "toc.md"
+            with open(filename, "w", encoding='utf-8') as f:
                 f.write(toc)
 
         # Add the table of contents to the vector store

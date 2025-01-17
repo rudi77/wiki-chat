@@ -169,6 +169,7 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+chroma_db/*
 chroma_db/chroma.sqlite3
 chroma_db/79e7306f-9354-405f-9a04-64481cfc9997/data_level0.bin
 chroma_db/79e7306f-9354-405f-9a04-64481cfc9997/header.bin
@@ -185,3 +186,12 @@ toc.md
 toc.json
 summaries.json
 chroma_db/62991bd6-fe45-40ab-8aef-a16162d8c85b/chroma.sqlite3
+chroma_db/Bennu/chroma.sqlite3
+Bennu
+Bennu_summaries.json
+Bennu_toc.md
+BlumatixTemplates
+BlumatixTemplates_summaries.json
+documents.txt
+BlumatixTemplates_toc.md
+documents.txt

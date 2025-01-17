@@ -7,6 +7,48 @@ import logging
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
+
+def initialize_vectorstore(vsm, selected_db):
+    """Initialize the vectorstore for the selected database."""
+    if "vectorstore" not in st.session_state or st.session_state.get("selected_db") != selected_db:
+        vectorstore = vsm.get_vectorstore(selected_db)
+        if vectorstore is None:
+            st.error(f"Failed to load VectorDB '{selected_db}'.")
+            return None
+        st.session_state.vectorstore = vectorstore
+        st.session_state.selected_db = selected_db
+    return st.session_state.vectorstore
+
+
+def initialize_retrieval_chain(model_choice, temperature):
+    """Initialize the LLM retrieval chain."""
+    if "retrieval_chain" not in st.session_state:
+        llm_handler = LLMHandler(model=model_choice, temperature=temperature)
+        retrieval_chain = llm_handler.create_retrieval_chain(st.session_state.vectorstore)
+        st.session_state.retrieval_chain = retrieval_chain
+        st.session_state.llm_handler = llm_handler
+    return st.session_state.retrieval_chain
+
+
+def reset_chat():
+    """Reset the chat session state."""
+    keys_to_clear = [
+        "messages",
+        "documents_processed",
+        "file_summaries",
+        "table_of_contents",
+        "retrieval_chain",
+        "llm_handler",
+        "context",
+        "vectorstore",
+        "selected_db",
+    ]
+    for key in keys_to_clear:
+        if key in st.session_state:
+            del st.session_state[key]
+    st.rerun()
+
+
 def main():
     st.set_page_config(page_title="Chat - Wiki Q&A Chatbot", layout="wide")
     st.title("💬 Chat Interface")
@@ -22,29 +64,16 @@ def main():
     available_dbs = vsm.list_vectordbs()  # List available vector databases
     selected_db = st.sidebar.selectbox("Select a VectorDB to Chat With:", available_dbs)
 
-    clear_button = st.sidebar.button("🧹 Clear Chat and Reload")
+    clear_button = st.sidebar.button("🧹 Clear Chat and Reload", on_click=reset_chat)
 
-    # Handle Clear Chat and Reload
-    if clear_button:
-        for key in ["messages", "documents_processed", "file_summaries", "table_of_contents", "retrieval_chain", "llm_handler", "context", "vectorstore", "selected_db"]:
-            if key in st.session_state:
-                del st.session_state[key]
-        st.rerun()
+    # Initialize Vector Store and Retrieval Chain
+    vectorstore = initialize_vectorstore(vsm, selected_db)
+    if not vectorstore:
+        return
 
-    # Initialize Vector Store
-    if 'vectorstore' not in st.session_state or st.session_state.get("selected_db") != selected_db:
-        vectorstore = vsm.get_vectorstore(selected_db)
-        if vectorstore is None:
-            st.error(f"Failed to load VectorDB '{selected_db}'.")
-            return
-        st.session_state.vectorstore = vectorstore
-        st.session_state.selected_db = selected_db
-
-    # Initialize LLM Handler
-    if "retrieval_chain" not in st.session_state:
-        llm_handler = LLMHandler(model=model_choice, temperature=temperature)
-        st.session_state.retrieval_chain = llm_handler.create_retrieval_chain(st.session_state.vectorstore)
-        st.session_state.llm_handler = llm_handler
+    retrieval_chain = initialize_retrieval_chain(model_choice, temperature)
+    if not retrieval_chain:
+        return
 
     # Initialize Session State Variables
     if "messages" not in st.session_state:
@@ -52,12 +81,8 @@ def main():
 
     # Display Chat Messages
     for message in st.session_state.messages:
-        if message["role"] == "assistant":
-            with st.chat_message("assistant"):
-                st.markdown(message["content"])
-        elif message["role"] == "user":
-            with st.chat_message("user"):
-                st.markdown(message["content"])
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
 
     # User Input
     user_input = st.chat_input("Ask a question about your selected VectorDB:")
@@ -68,14 +93,10 @@ def main():
             st.markdown(user_input)
 
         # Process Input and Generate Response
-        if "vectorstore" not in st.session_state or "retrieval_chain" not in st.session_state:
-            st.error("Vector Store or Retrieval Chain not initialized. Please reload the page.")
-            return
-
         retriever = st.session_state.vectorstore.as_retriever(search_kwargs={"k": 50})
         context_docs = retriever.get_relevant_documents(user_input)
 
-        # Debug context documents (optional)
+        # Log context documents (optional)
         for doc in context_docs:
             logging.info(f"Document Metadata: {doc.metadata}")
             logging.info(f"Document Content: {doc.page_content}")
@@ -91,5 +112,6 @@ def main():
             st.session_state.messages.append({"role": "assistant", "content": assistant_response})
             with st.chat_message("assistant"):
                 st.markdown(assistant_response)
+
 
 main()
