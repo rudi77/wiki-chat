@@ -6,6 +6,9 @@ from langchain_community.vectorstores import Chroma
 from langchain.schema import Document
 from dotenv import load_dotenv
 
+import time
+from tenacity import retry, wait_exponential, stop_after_attempt
+
 load_dotenv()
 
 class VectorStoreManager:
@@ -45,17 +48,20 @@ class VectorStoreManager:
         embeddings = OpenAIEmbeddings(api_key=os.getenv("OPENAI_API_KEY"))
         return Chroma(persist_directory=db_path, embedding_function=embeddings)
 
-    def add_documents(self, db_name: str, documents: list) -> bool:
+    def add_documents(self, db_name: str, documents: list, batch_size: int = 5, delay: float = 1.0) -> bool:
         vectorstore = self.get_vectorstore(db_name)
         if vectorstore is None:
             return False
         try:
-            vectorstore.add_documents(documents=documents)
-            vectorstore.persist()
+            for i in range(0, len(documents), batch_size):
+                batch = documents[i:i + batch_size]
+                vectorstore.add_documents(documents=batch)
+                vectorstore.persist()
+                time.sleep(delay)  # Add delay between batches to prevent rate limiting
             return True
         except Exception as e:
             print(f"Error adding documents to vectordb '{db_name}': {e}")
-            return False
+            return False    
 
     def list_documents(self, db_name: str) -> list:
         vectorstore = self.get_vectorstore(db_name)

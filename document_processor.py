@@ -5,6 +5,7 @@ import uuid  # Moved import to the top for better practice
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from vector_store import VectorStoreManager
 from llm_handler import LLMHandler
+from pyhton_chunker import get_python_chunks
 from langchain.schema import Document
 
 # Add the missing imports below
@@ -53,23 +54,19 @@ class DocumentProcessor:
             return
 
         # Add summaries of the files to the vector store
-        summaries = self.add_file_summaries(files, read_from_file=False, db_name=db_name, progress_callback=progress_callback)
+        # summaries = self.add_file_summaries(files, read_from_file=False, db_name=db_name, progress_callback=progress_callback)
 
-        # Add table of contents to the vector store
-        self.add_master_toc(db_name, self._combine_summaries(summaries))
+        # # Add table of contents to the vector store
+        # self.add_master_toc(db_name, self._combine_summaries(summaries))
         
         # Load and split documents
-        documents = self.load_and_split_documents(directory, file_types, splitter_type, chunk_size, chunk_overlap)
+        documents = self.load_and_split_documents(directory, file_types, splitter_type, chunk_size, chunk_overlap, progress_callback=progress_callback)
         
         if documents:
             # Prepare documents for addition to the vector store
             # Convert content and metadata into Document objects
             documents = [
-                self.create_document(page_content=doc.page_content, metadata={
-                    "source": doc.metadata.get("source", "N/A"),
-                    "chunk": doc.metadata.get("chunk", 0),
-                    "id": self.generate_doc_id()
-                })
+                self.create_document(page_content=doc.page_content, metadata=doc.metadata)
                 for doc in documents
             ]
             
@@ -128,7 +125,7 @@ class DocumentProcessor:
 
 
             # Use ThreadPoolExecutor to process files in parallel
-            with ThreadPoolExecutor(max_workers=10) as executor:
+            with ThreadPoolExecutor(max_workers=5) as executor:
                 future_to_file = {executor.submit(process_file, file): file for file in files}
 
                 for idx, future in enumerate(as_completed(future_to_file), start=1):
@@ -142,7 +139,7 @@ class DocumentProcessor:
 
             # Save summaries to a JSON file
             summaries_json = json.dumps(summaries, indent=4)
-            filename = db_name + "_summaries.json" if db_name else "summaries.json"
+            filename = "./summaries/" + db_name + "_summaries.json" if db_name else "summaries.json"
             with open(filename, "w", encoding='utf-8') as f:
                 f.write(summaries_json)
 
@@ -194,7 +191,7 @@ class DocumentProcessor:
             toc = self.llm.send_query(system_prompt, user_content)
             # Write the table of contents to a toc.md file
 
-            filename = db_name + "_toc.md" if db_name else "toc.md"
+            filename = "./summaries/" + db_name + "_toc.md" if db_name else "toc.md"
             with open(filename, "w", encoding='utf-8') as f:
                 f.write(toc)
 
@@ -207,27 +204,82 @@ class DocumentProcessor:
             })
         ])            
 
-    def load_and_split_documents(self, directory, file_types, splitter_type, chunk_size, chunk_overlap):
+    def load_and_split_documents(self, directory, file_types, splitter_type, chunk_size, chunk_overlap, progress_callback=None):
         all_file_paths = []
         for file_type in file_types:
             file_pattern = os.path.join(directory, f"**/*.{file_type}")
             matched = glob.glob(file_pattern, recursive=True)
             all_file_paths.extend(matched)
 
+        # Standard-Splitter, falls wir später für große Python-Blöcke ebenfalls Chunking wollen
         text_splitter = self.get_text_splitter(splitter_type, chunk_size, chunk_overlap)
+
         documents = []
-        for file_path in all_file_paths:
+        len_total_files = len(all_file_paths)
+        for idx, file_path in enumerate(all_file_paths):
+
             try:
-                loader = self.get_loader(file_path)
-                file_docs = loader.load()
-                split_docs = text_splitter.split_documents(file_docs)
-                for i, doc in enumerate(split_docs):
-                    doc.metadata["source"] = file_path
-                    doc.metadata["chunk"] = i
-                    documents.append(doc)
+                ext = os.path.splitext(file_path)[1].lower()
+
+                if ext == ".py":
+                    # 1) Python-spezifisches Chunking via AST
+                    python_chunks = get_python_chunks(file_path)
+                    print(f"Processing Python file {file_path} with {len(python_chunks)} chunks.")
+                    for i, chunk in enumerate(python_chunks):
+                        doc = Document(
+                            page_content=chunk["source"],
+                            metadata={
+                                "source": chunk["file_path"],
+                                "chunk": i,
+                                "python_chunk_type": chunk["type"],
+                                "python_chunk_name": chunk["name"],
+                                "start_line": chunk["start_line"],
+                                "end_line": chunk["end_line"],
+                                "chunk_type": "python",
+                                "id": self.generate_doc_id()
+                            }
+                        )
+                        documents.append(doc)
+                else:
+                    # 2) Standard-Loader für Nicht-Python-Dateien
+                    loader = self.get_loader(file_path)
+                    file_docs = loader.load()
+                    split_docs = text_splitter.split_documents(file_docs)
+                    for i, doc in enumerate(split_docs):
+                        doc.metadata["source"] = file_path
+                        doc.metadata["chunk"] = i
+                        doc.metadata["id"] = self.generate_doc_id()
+                        documents.append(doc)
+                # Invoke the progress callback with the current state
+                if progress_callback:
+                    progress_callback(idx, len_total_files, file_path)
             except Exception as e:
                 print(f"Error processing file {file_path}: {e}")
+
         return documents
+
+
+    # def load_and_split_documents(self, directory, file_types, splitter_type, chunk_size, chunk_overlap):
+    #     all_file_paths = []
+    #     for file_type in file_types:
+    #         file_pattern = os.path.join(directory, f"**/*.{file_type}")
+    #         matched = glob.glob(file_pattern, recursive=True)
+    #         all_file_paths.extend(matched)
+
+    #     text_splitter = self.get_text_splitter(splitter_type, chunk_size, chunk_overlap)
+    #     documents = []
+    #     for file_path in all_file_paths:
+    #         try:
+    #             loader = self.get_loader(file_path)
+    #             file_docs = loader.load()
+    #             split_docs = text_splitter.split_documents(file_docs)
+    #             for i, doc in enumerate(split_docs):
+    #                 doc.metadata["source"] = file_path
+    #                 doc.metadata["chunk"] = i
+    #                 documents.append(doc)
+    #         except Exception as e:
+    #             print(f"Error processing file {file_path}: {e}")
+    #     return documents
 
     def get_loader(self, file_path):
         ext = os.path.splitext(file_path)[1].lower()
